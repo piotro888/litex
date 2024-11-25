@@ -116,7 +116,7 @@ class IntelClocking(LiteXModule):
             p_OPERATION_MODE         = "NORMAL",
             i_INCLK                  = self.clkin,
             o_CLK                    = clks,
-            i_ARESET                 = 0,
+            i_ARESET                 = self.reset,
             i_CLKENA                 = 2**self.nclkouts_max - 1,
             i_EXTCLKENA              = 0xf,
             i_FBIN                   = 1,
