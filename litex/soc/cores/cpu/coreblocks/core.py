@@ -10,8 +10,9 @@ import subprocess
 from migen import *
 
 from litex import get_data_mod
-from litex.soc.interconnect import wishbone
 from litex.soc.cores.cpu import CPU, CPU_GCC_TRIPLE_RISCV32
+from litex.soc.interconnect import wishbone
+from litex.soc.integration.soc import SoCRegion
 
 # Variants -----------------------------------------------------------------------------------------
 
@@ -25,8 +26,8 @@ CPU_VARIANTS = {
 
 GCC_FLAGS = {
     "minimal":          "-march=rv32e2p1                      -mabi=ilp32 ",
-    "standard":         "-march=rv32i2p1_mzicsr_zifencei      -mabi=ilp32 ",
-    "full":             "-march=rv32i2p1_mcbzicsr_zifencei    -mabi=ilp32 ",
+    "standard":         "-march=rv32i2p1_mazicsr_zifencei      -mabi=ilp32 ",
+    "full":             "-march=rv32i2p1_maczicsr_zifencei   -mabi=ilp32 ",
 }
 
 # Coreblocks ----------------------------------------------------------------------------------------
@@ -99,6 +100,37 @@ class Coreblocks(CPU):
             i_wb_data__err   = dbus.err,
             i_wb_data__dat_r = dbus.dat_r,
         )
+        
+        logcnt = Signal(5)
+        req = ibus.stb & ibus.cyc & ibus.ack
+        self.sync += If(req, logcnt.eq(logcnt+1))
+        adrus = Signal(32)
+        self.comb += adrus.eq(ibus.adr<<2)
+        ddrus = Signal(32)
+        self.comb += ddrus.eq(dbus.adr<<2)
+        #self.sync += If((logcnt == 0) & (req), Display("[%0h]", adrus))
+        if False:
+            self.sync += If((req) & self.platform.trace, Display("[%0h]", adrus))
+            self.sync += If(dbus.stb & dbus.cyc & dbus.ack & self.platform.trace, Display("<%0h %0h>", ddrus, dbus.dat_r))
+            self.sync += If(ibus.stb & ibus.cyc & ibus.err, Display("!!![%0h]", adrus))
+            self.sync += If(dbus.stb & dbus.cyc & dbus.err, Display("!!!<%0h>", ddrus))
+    
+    # Memory Mapping.
+    @property
+    def mem_map(self):
+        # Default Memory Map.
+        # In Coreblocks only clint address is fixed and MMIO (no-cache) region is set to 0xe000_0000 - 0xffff_fffff by default core configurations.
+        # Other parameters are to arbitrary choice to LiteX. < TODO
+        return {
+            "rom":      0x0000_0000,
+            "sram":     0x0100_0000,
+            "main_ram": 0x4000_0000,
+            "csr":      0xe000_0000,
+            "clint":    0xe100_0000,
+        }
+
+    def add_soc_components(self, soc):
+        soc.bus.add_region("clint", SoCRegion(origin=soc.mem_map.get("clint"), size=0xC000, cached=False, linker=True))
 
     def set_reset_address(self, reset_address):
         self.reset_address = reset_address
@@ -109,6 +141,7 @@ class Coreblocks(CPU):
         cli_params = []
         cli_params.append("--output={}".format(verilog_filename))
         cli_params.append("--config={}".format(CPU_VARIANTS[variant]))
+        cli_params.append("--soc")
         #cli_params.append("--reset-addr={}".format(reset_address))
         sdir = get_data_mod("cpu", "coreblocks").data_location
         if subprocess.call(["python3", os.path.join(sdir, "scripts", "gen_verilog.py"), *cli_params]):
